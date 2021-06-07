@@ -1,41 +1,56 @@
-import puka
-from multiprocessing import Process
+from typing import Callable
+import pika
 
-__all__ = ['RabbitMQClient', 'RabbitmqClient']
+__all__ = ['RabbitMQClient']
 
 
-def _handle_pull(client, consume_promise, callback):
-    while True:
-        result = client.wait(consume_promise)
-        callback(result)
+def recover_connection(func):
+    def inner(self, *args, **kwargs):
+        while True:
+            try:
+                func(self, *args, **kwargs)
+                break
+            # Don't recover if connection was closed by broker or on channel errors
+            except (pika.exceptions.ConnectionClosedByBroker, pika.exceptions.AMQPChannelError) as e:
+                raise e
+            # Recover on all other connection errors
+            except pika.exceptions.AMQPConnectionError as e:
+                print("Encountered a connection error: %s! Recovering..." % str(e))
+                self.connection.close()
+                self._connect()
+    return inner
 
 
 class RabbitMQClient:
+    url = ""
+    client = None
+    process = None
+
     def __init__(self, url):
-        self.client = puka.Client(url)
-        promise = self.client.connect()
-        self.client.wait(promise)
-        self.process = None
+        self.url = url
+        self._connect()
 
-    def push(self, message, queue, exchange=''):
-        promise = self.client.queue_declare(queue=queue, durable=True)
-        self.client.wait(promise)
-        promise = self.client.basic_publish(exchange=exchange, routing_key=queue, body=message)
-        self.client.wait(promise)
+    @recover_connection
+    def push(self, message: str, queue: str, exchange: str = ''):
+        self.client.queue_declare(queue=queue, durable=True)
+        self.client.basic_publish(exchange=exchange, routing_key=queue, body=message)
 
-    def pull(self, callback, queue):
-        promise = self.client.queue_declare(queue=queue, durable=True)
-        self.client.wait(promise)
-        consume_promise = self.client.basic_consume(queue=queue, prefetch_count=1)
-        self.process = Process(target=_handle_pull, args=(consume_promise, callback))
-        self.process.start()
+    @recover_connection
+    def pull(self, callback: Callable, queue: str):
+        channel = self.client
+        channel.basic_consume(queue, callback)
+        try:
+            channel.start_consuming()
+        except KeyboardInterrupt:
+            channel.stop_consuming()
 
+    @recover_connection
     def delete(self, message, ack=True):
         if ack:
             self.client.basic_ack(message)
         else:
-            self.client.basic_reject(message)
+            self.client.basic_nack(message)
 
-
-# For backwards compatibility
-RabbitmqClient = RabbitMQClient
+    def _connect(self):
+        self.connection = pika.BlockingConnection(pika.URLParameters(self.url))
+        self.client = self.connection.channel()
