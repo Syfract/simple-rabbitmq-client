@@ -16,7 +16,10 @@ def recover_connection(func):
             # Recover on all other connection errors
             except pika.exceptions.AMQPConnectionError as e:
                 print("Encountered a connection error: %s! Recovering..." % str(e))
-                self.connection.close()
+                try:
+                    self.connection.close()
+                except pika.exceptions.ConnectionWrongStateError:
+                    pass
                 self._connect()
     return inner
 
