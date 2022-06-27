@@ -1,5 +1,5 @@
-from typing import Callable
-import pika
+from typing import Callable, Union, Iterable
+from pika import BlockingConnection, URLParameters, exceptions
 
 __all__ = ['RabbitMQClient']
 
@@ -11,14 +11,14 @@ def recover_connection(func):
                 func(self, *args, **kwargs)
                 break
             # Don't recover if connection was closed by broker or on channel errors
-            except (pika.exceptions.ConnectionClosedByBroker, pika.exceptions.AMQPChannelError) as e:
+            except (exceptions.ConnectionClosedByBroker, exceptions.AMQPChannelError) as e:
                 raise e
             # Recover on all other connection errors
-            except pika.exceptions.AMQPConnectionError as e:
+            except exceptions.AMQPConnectionError as e:
                 print("Encountered a connection error: %s! Recovering..." % str(e))
                 try:
                     self.connection.close()
-                except pika.exceptions.ConnectionWrongStateError:
+                except exceptions.ConnectionWrongStateError:
                     pass
                 self._connect()
     return inner
@@ -36,12 +36,18 @@ class RabbitMQClient:
     @recover_connection
     def push(self, message: str, queue: str, exchange: str = ''):
         self.client.queue_declare(queue=queue, durable=True)
-        self.client.basic_publish(exchange=exchange, routing_key=queue, body=message)
+        self.client.basic_publish(exchange=exchange, routing_key=queue, body=message.encode('utf-8'))
 
     @recover_connection
-    def pull(self, callback: Callable, queue: str):
+    def pull(self, callback: Callable, queue: Union[str, Iterable[str]]):
+        if type(queue) == str:
+            queue = (queue,)
+
         channel = self.client
-        channel.basic_consume(queue, callback)
+
+        for q in queue:
+            channel.basic_consume(q, callback)
+
         try:
             channel.start_consuming()
         except KeyboardInterrupt:
@@ -55,5 +61,5 @@ class RabbitMQClient:
             self.client.basic_nack(message)
 
     def _connect(self):
-        self.connection = pika.BlockingConnection(pika.URLParameters(self.url))
+        self.connection = BlockingConnection(URLParameters(self.url))
         self.client = self.connection.channel()
