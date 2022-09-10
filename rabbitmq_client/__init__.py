@@ -60,6 +60,10 @@ class RabbitMQClient:
         else:
             self.client.basic_nack(message)
 
+    @recover_connection
+    def ack(self, channel, tag):
+        channel.basic_ack(tag)
+
     def _connect(self):
         self.connection = BlockingConnection(URLParameters(self.url))
         self.client = self.connection.channel()
