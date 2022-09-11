@@ -11,7 +11,8 @@ def recover_connection(func):
                 func(self, *args, **kwargs)
                 break
             # Reconnect if the channel was closed
-            except exceptions.ChannelWrongStateError:
+            except exceptions.ChannelWrongStateError as e:
+                print("Channel is in wrong state: %s! Reconnecting..." % str(e))
                 self._connect()
             # Don't recover if connection was closed by broker or on channel errors
             except (exceptions.ConnectionClosedByBroker, exceptions.AMQPChannelError) as e:
