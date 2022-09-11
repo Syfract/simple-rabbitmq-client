@@ -16,6 +16,7 @@ def recover_connection(func):
                 self._connect()
             # Don't recover if connection was closed by broker or on channel errors
             except (exceptions.ConnectionClosedByBroker, exceptions.AMQPChannelError) as e:
+                print("Unrecoverable error occurred!")
                 raise e
             # Recover on all other connection errors
             except exceptions.AMQPConnectionError as e:
@@ -65,8 +66,8 @@ class RabbitMQClient:
             self.client.basic_nack(message)
 
     @recover_connection
-    def ack(self, channel, tag):
-        channel.basic_ack(tag)
+    def ack(self, tag):
+        self.client.basic_ack(tag)
 
     def _connect(self):
         self.connection = BlockingConnection(URLParameters(self.url))
