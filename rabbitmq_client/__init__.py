@@ -44,18 +44,20 @@ class RabbitMQClient:
         self.client.basic_publish(exchange=exchange, routing_key=queue, body=message.encode('utf-8'))
 
     @recover_connection
-    def pull(self, callback: Callable, queue: Union[str, Iterable[str]]):
+    def pull(self, callback: Callable, queue: Union[str, Iterable[str]], prefetch_count: int = 1):
         if type(queue) == str:
             queue = (queue,)
 
         channel = self.client
+
+        channel.basic_qos(prefetch_count=prefetch_count)
 
         for q in queue:
             channel.basic_consume(q, callback)
 
         try:
             channel.start_consuming()
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, InterruptedError):
             channel.stop_consuming()
 
     @recover_connection
