@@ -6,6 +6,10 @@ __all__ = ['RabbitMQClient']
 
 def recover_connection(func):
     def inner(self, *args, **kwargs):
+        # Connect if not already connected
+        if self.connection is None or not self.connection.is_open:
+            self._connect()
+
         while True:
             try:
                 func(self, *args, **kwargs)
@@ -31,12 +35,14 @@ def recover_connection(func):
 
 class RabbitMQClient:
     url = ""
+    connection = None
     client = None
     process = None
 
-    def __init__(self, url):
+    def __init__(self, url, connect_now=False):
         self.url = url
-        self._connect()
+        if connect_now:
+            self._connect()
 
     @recover_connection
     def push(self, message: str, queue: str, exchange: str = ''):
